@@ -23,7 +23,8 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
-    QImage *m_img;
+    QImage* m_heightmap;
+    QImage* m_normalmap;
     QLabel *m_centralWidget;
 };
 
