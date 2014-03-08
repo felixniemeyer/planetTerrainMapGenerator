@@ -8,8 +8,9 @@ MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow)
 {
-    m_heightmap = new QImage(QSize(512, 512), QImage::Format_RGB32);
-    m_normalmap = new QImage(QSize(512, 512), QImage::Format_RGBA8888);
+    textureSize = 1024;
+    m_heightmap = new QImage(QSize(textureSize, textureSize), QImage::Format_RGB32);
+    m_normalmap = new QImage(QSize(textureSize, textureSize), QImage::Format_RGBA8888);
     m_centralWidget = new QLabel;
     ui->setupUi(this);
     setCentralWidget(m_centralWidget);
@@ -22,7 +23,7 @@ MainWindow::~MainWindow()
 
 float bitmapValue(int x, int y, noise::utils::NoiseMap* map, int resolution)
 {
-    return map->GetValue((x%resolution), (y%resolution));
+    return map->GetValue((x%resolution), (y%resolution))*0.5 +0.5;
 }
 
 float getInterpolatedBitmapValue(noise::utils::NoiseMap* map, float  u, float v, int resolution)
@@ -48,14 +49,14 @@ void MainWindow::on_actionGenerateNoise_triggered()
 {
     noise::module::RidgedMulti noiseModule;
     noise::module::Clamp clampModule;
-    clampModule.SetBounds(0, 1.0);
+    clampModule.SetBounds(-1.0, 1.0);
 
     //noiseModule.SetOctaveCount(8);
     noiseModule.SetSeed(124);
     noise::utils::NoiseMap noiseMap;
     noise::utils::NoiseMapBuilderSphere sphericalBuilder;
     sphericalBuilder.SetDestNoiseMap(noiseMap);
-    sphericalBuilder.SetDestSize(512, 512);
+    sphericalBuilder.SetDestSize(textureSize, textureSize);
     sphericalBuilder.SetBounds(-90, 90, -180, 180);
     float min = 0;
     float max = 0;
@@ -69,11 +70,11 @@ void MainWindow::on_actionGenerateNoise_triggered()
         sphericalBuilder.SetSourceModule(clampModule);
         sphericalBuilder.Build();
 
-        for (unsigned int y = 0; y < 512; ++y)
-            for (unsigned int x = 0; x < 512; ++x)
+        for (unsigned int y = 0; y < textureSize; ++y)
+            for (unsigned int x = 0; x < textureSize; ++x)
             {
-                float u = x/512.0f; // lon <-> u
-                float v = y/512.0f; // lat <-> v
+                float u = x*1.0f/textureSize; // lon <-> u
+                float v = y*1.0f/textureSize; // lat <-> v
 
                 //get angle for c = (u,v)
                 float lon = u * 2 * M_PI;
@@ -84,7 +85,7 @@ void MainWindow::on_actionGenerateNoise_triggered()
                     cos(lon) * (sin(lat)),
                     cos(lat),
                     sin(lon) * (sin(lat)));
-                float delta = M_PI/512.0f;
+                float delta = M_PI/textureSize;
                 float deltalon = lon + delta*2;
                 float deltalat = lat + delta;
                 QVector3D b(
@@ -101,20 +102,20 @@ void MainWindow::on_actionGenerateNoise_triggered()
                 cv = deltalat / M_PI;
 
                 //apply hightmap
-                a *= 1+getInterpolatedBitmapValue(&noiseMap, u, v, 512);
-                b *= 1+getInterpolatedBitmapValue(&noiseMap, bu, v, 512);
-                c *= 1+getInterpolatedBitmapValue(&noiseMap, u, cv, 512);
+                a *= 1+getInterpolatedBitmapValue(&noiseMap, u, v, textureSize);
+                b *= 1+getInterpolatedBitmapValue(&noiseMap, bu, v, textureSize);
+                c *= 1+getInterpolatedBitmapValue(&noiseMap, u, cv, textureSize);
 
                 //calculate normal vector for spanned plane
                 QVector3D normal = QVector3D::crossProduct(b-a,c-a);
                 normal.normalize();
 
                 //save normalized normal vector to texture. rgb = xyz
-                int texeloffset = (y*512 + x)*4;
+                int texeloffset = (y*textureSize + x)*4;
                 normalBits[texeloffset + 0] = (normal.x()+1)*255/2.0f;
                 normalBits[texeloffset + 1] = (normal.y()+1)*255/2.0f;
                 normalBits[texeloffset + 2] = (normal.z()+1)*255/2.0f;
-                normalBits[texeloffset + 3] = bitmapValue(x,y,&noiseMap,512)*255;
+                normalBits[texeloffset + 3] = bitmapValue(x,y,&noiseMap,textureSize)*255;
             }
         m_normalmap->save(tr("sphericalnoise%1.png").arg(i));
         m_centralWidget->setPixmap(QPixmap::fromImage(*m_normalmap));

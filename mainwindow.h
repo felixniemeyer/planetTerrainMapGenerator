@@ -22,6 +22,8 @@ private slots:
     void on_actionGenerateNoise_triggered();
 
 private:
+    int textureSize;
+
     Ui::MainWindow *ui;
     QImage* m_heightmap;
     QImage* m_normalmap;
