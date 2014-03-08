@@ -9,7 +9,7 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     m_heightmap = new QImage(QSize(512, 512), QImage::Format_RGB32);
-    m_normalmap = new QImage(QSize(512, 512), QImage::Format_RGB888);
+    m_normalmap = new QImage(QSize(512, 512), QImage::Format_RGBA8888);
     m_centralWidget = new QLabel;
     ui->setupUi(this);
     setCentralWidget(m_centralWidget);
@@ -20,12 +20,12 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-float bitmapValue(int x, int y, uchar* heightBits, int resolution)
+float bitmapValue(int x, int y, noise::utils::NoiseMap* map, int resolution)
 {
-    return heightBits[((y%resolution)*resolution + (x%resolution))*4];
+    return map->GetValue((x%resolution), (y%resolution));
 }
 
-float getInterpolatedBitmapValue(uchar* heightBits, float  u, float v, int resolution)
+float getInterpolatedBitmapValue(noise::utils::NoiseMap* map, float  u, float v, int resolution)
 {
     u = u*(resolution-1);
     v = v*(resolution-1);
@@ -39,35 +39,16 @@ float getInterpolatedBitmapValue(uchar* heightBits, float  u, float v, int resol
 
     for(int x = 0; x <= 1; x++)
         for(int y = 0; y <= 1; y++)
-            sum += bitmapValue(su + x, sv + y, heightBits, resolution) * abs(x-weightu) * abs(y-weightv);
+            sum += bitmapValue(su + x, sv + y, map, resolution) * abs(x-weightu) * abs(y-weightv);
 
-    return sum/256.0f;
-}
-
-float getInterpolatedBitmapValueV2(uchar* heightBits, float  u, float v, int resolution)
-{
-    u = u*(resolution-1);
-    v = v*(resolution-1);
-    int su = u; //get floor(u)
-    int sv = v; //get floor(v)
-
-    float weightu = 1 - (u - su); //Anteil des vorderen
-    float weightv = 1 - (v - sv);
-
-    float sum = 0; //sums of values of 4 nearest texels
-
-    for(int x = 0; x <= 1; x++)
-        for(int y = 0; y <= 1; y++)
-            sum += bitmapValue(su + x, sv + y, heightBits, resolution) * abs(x-weightu) * abs(y-weightv);
-
-    return sum/256.0f;
+    return sum;
 }
 
 void MainWindow::on_actionGenerateNoise_triggered()
 {
     noise::module::RidgedMulti noiseModule;
     noise::module::Clamp clampModule;
-    clampModule.SetBounds(-1.0, 1.0);
+    clampModule.SetBounds(0, 1.0);
 
     //noiseModule.SetOctaveCount(8);
     noiseModule.SetSeed(124);
@@ -79,26 +60,15 @@ void MainWindow::on_actionGenerateNoise_triggered()
     float min = 0;
     float max = 0;
 
-    uchar* heightBits = m_heightmap->bits();
     uchar* normalBits = m_normalmap->bits();
 
-    for (int i = 0; i < 15; ++i)
+    for (int i = 0; i < 1; ++i)
     {
         noiseModule.SetSeed(74 + i);
         clampModule.SetSourceModule(0, noiseModule);
         sphericalBuilder.SetSourceModule(clampModule);
         sphericalBuilder.Build();
-        QRgb* currPixel = reinterpret_cast<QRgb*>(heightBits);
-        for (unsigned int y = 0; y < 512; ++y)
-            for (unsigned int x = 0; x < 512; ++x)
-            {
-                float noiseVal = (noiseMap.GetValue(x, y) + 1)*0.5;
-                *(currPixel++) = qRgb(255 * noiseVal, 255 * noiseVal, 255 * noiseVal);
-                if (min > noiseVal)
-                    min = noiseVal;
-                if (max < noiseVal)
-                    max = noiseVal;
-            }
+
         for (unsigned int y = 0; y < 512; ++y)
             for (unsigned int x = 0; x < 512; ++x)
             {
@@ -131,22 +101,21 @@ void MainWindow::on_actionGenerateNoise_triggered()
                 cv = deltalat / M_PI;
 
                 //apply hightmap
-                a *= 1+getInterpolatedBitmapValue(heightBits, u, v, 512);
-                b *= 1+getInterpolatedBitmapValue(heightBits, bu, v, 512);
-                c *= 1+getInterpolatedBitmapValue(heightBits, u, cv, 512);
+                a *= 1+getInterpolatedBitmapValue(&noiseMap, u, v, 512);
+                b *= 1+getInterpolatedBitmapValue(&noiseMap, bu, v, 512);
+                c *= 1+getInterpolatedBitmapValue(&noiseMap, u, cv, 512);
 
                 //calculate normal vector for spanned plane
                 QVector3D normal = QVector3D::crossProduct(b-a,c-a);
                 normal.normalize();
 
                 //save normalized normal vector to texture. rgb = xyz
-                int texeloffset = (y*512 + x)*3;
+                int texeloffset = (y*512 + x)*4;
                 normalBits[texeloffset + 0] = (normal.x()+1)*255/2.0f;
                 normalBits[texeloffset + 1] = (normal.y()+1)*255/2.0f;
                 normalBits[texeloffset + 2] = (normal.z()+1)*255/2.0f;
+                normalBits[texeloffset + 3] = bitmapValue(x,y,&noiseMap,512)*255;
             }
-
-        m_heightmap->save(tr("sphericalnoise%1.png").arg(i));
         m_normalmap->save(tr("sphericalnoise%1.png").arg(i));
         m_centralWidget->setPixmap(QPixmap::fromImage(*m_normalmap));
     }
